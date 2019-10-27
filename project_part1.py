@@ -98,7 +98,7 @@ class InvertedIndex:
             if x not in count1:
                 return 0
             else:
-                if count1[x] != count2[x]:
+                if count1[x] < count2[x]:
                     return 0
         return 1
 
@@ -120,15 +120,29 @@ class InvertedIndex:
     def split_query(self, Q, DoE):
         query_splits = []
         query_token = [qt for qt in Q.split(" ")]
+        doe_subset1 = {}
+        #wash entity round 1
+        #remove entities contain tokens not in the query tokens
+        for ent in DoE:
+            Good = True
+            tk_enk_set = set([t for t in ent.split(" ")])
+            for x in list(tk_enk_set):
+                if x not in query_token:
+                    Good = False
+                    break
+            if Good:
+                doe_subset1[ent] = DoE[ent]
         #get all subset of doe
-        subset_pool = chain.from_iterable(combinations(list(DoE.keys()), r) for r in range(len(DoE)+1))
+        subset_pool = list(chain.from_iterable(combinations(list(doe_subset1.keys()), r) for r in range(len(doe_subset1)+1)))
         for sb in subset_pool:
             if len(sb) == 0:
                 query_splits.append({"tokens":query_token,"entities":[]})
                 continue
             tmp = [y for x in sb for y in x.split(" ")]
             if(self.isSubList(query_token,tmp)):
-                query_splits.append({"tokens":self.getListComplement(query_token,tmp),"entities":list(sb)})
+                tokens_list = self.getListComplement(query_token,tmp)
+                if tokens_list:#omit the case that tokens become an empty list, according to the spec
+                    query_splits.append({"tokens":tokens_list,"entities":list(sb)})
         return query_splits
 
     def max_score_query(self, query_splits, doc_id):
@@ -157,10 +171,23 @@ class InvertedIndex:
 
 
 
-# documents = {1: 'According to Los Angeles Times, The Boston Globe will be experiencing another recession in 2020. However, The Boston Globe decales it a hoax.',
-#              2: 'The Washington Post declines the shares of George Washington.',
-#              3: 'According to Los Angeles Times, the UNSW COMP6714 students should be able to finish project part-1 now.'}
+documents = {1: 'According to Times of India, President Donald Trump was on his way to New York City after his address at UNGA.',
+             2: 'The New York Times mentioned an interesting story about Trump.',
+             3: 'I think it would be great if I can travel to New York this summer to see Trump.'}
 
-# index = InvertedIndex()
-# index.index_documents(documents)
+index = InvertedIndex()
+index.index_documents(documents)
+
+Q = 'The New New York City Times of India'
+DoE = {'Times of India':0, 'The New York Times':1,'New York City':2}
+
+# DoE={'A B C':0,'B C':1}   
+# Q='A B C C B'
+
+query_splits = index.split_query(Q, DoE)
+# for x in query_splits:
+#     print("final: ",x)
+
+result = index.max_score_query(query_splits, 1)
+print(result)
 
