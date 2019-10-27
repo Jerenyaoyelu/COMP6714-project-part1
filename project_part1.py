@@ -20,7 +20,7 @@ class InvertedIndex:
 
 
     def statistic(self,spacy_doc):
-        lt = [token.text for token in spacy_doc]
+        lt = [x.text for x in spacy_doc]
         return dict(Counter(lt))
 
     ## Your implementation for indexing the documents...
@@ -35,6 +35,7 @@ class InvertedIndex:
             #ent is a class, need to store its text only in the dict, otherwise it's easy to produce error
             for ent in tmp_en:
                 if ent in self.tf_entities:
+                    #tmp_en is a statistic summary of entities, so all entities in it will be unique, so the current doc_id must be new
                     if doc_id not in self.tf_entities[ent]:
                         self.tf_entities[ent][doc_id]=tmp_en[ent]
                 else:
@@ -42,46 +43,39 @@ class InvertedIndex:
             #get all tokens
             for token in doc:
                 if not token.is_stop and not token.is_punct:
-                    if token.text in self.tf_entities and doc_id in self.tf_entities[token.text]:
-                        pass
-                    else:
-                        if token.text in self.tf_tokens:
-                            #doc_id exists, it means duplicate tokens in the same doc
-                            #no need to add the frequence again
-                            if doc_id not in self.tf_tokens[token.text]:
+                    if token.text in self.tf_tokens:
+                        #doc_id exists, it means duplicate tokens in the same doc
+                        #no need to add the frequence again
+                        if doc_id not in self.tf_tokens[token.text]:
+                            #multiple tokens same as single-word entity
+                            #need to eliminate the num of single-word entity
+                            if token.text in tmp_en:
+                                if tmp_tk[token.text]-tmp_en[token.text]>0:
+                                    self.tf_tokens[token.text][doc_id]=tmp_tk[token.text]-tmp_en[token.text]
+                            else:
                                 self.tf_tokens[token.text][doc_id]=tmp_tk[token.text]
+                    else:
+                        if token.text in tmp_en:
+                            if tmp_tk[token.text]-tmp_en[token.text] > 0:
+                                self.tf_tokens[token.text] = {doc_id:tmp_tk[token.text]-tmp_en[token.text]}
                         else:
                             self.tf_tokens[token.text] = {doc_id:tmp_tk[token.text]}
-                            # self.tf_norm_tokens[token.text] = {doc_id:1+math.log(1+math.log(tmp_tk[token]))}
-        
+
         #construct dictionary of tf_norm
         #include doc not containing the term, assign 0 to count
         for token in self.tf_tokens:
-            for doc_id in documents:
-                if doc_id in  self.tf_tokens[token]:
-                    if token in self.tf_norm_tokens:
-                        self.tf_norm_tokens[token][doc_id] = 1+math.log(1+math.log(self.tf_tokens[token][doc_id]))
-                    else:
-                        self.tf_norm_tokens[token] = {doc_id:1+math.log(1+math.log(self.tf_tokens[token][doc_id]))}
+            for doc_id in self.tf_tokens[token]:
+                if token in self.tf_norm_tokens:
+                    self.tf_norm_tokens[token][doc_id] = 1+math.log(1+math.log(self.tf_tokens[token][doc_id]))
                 else:
-                    if token in self.tf_norm_tokens:
-                        self.tf_norm_tokens[token][doc_id] = 0
-                    else:
-                        self.tf_norm_tokens[token] = {doc_id:0}
+                    self.tf_norm_tokens[token] = {doc_id:1+math.log(1+math.log(self.tf_tokens[token][doc_id]))}
 
         for ent in self.tf_entities:
-            for doc_id in documents:
-                #doc contains ent
-                if doc_id in self.tf_entities[ent]:
-                    if ent in self.tf_norm_entities:
-                        self.tf_norm_entities[ent][doc_id] = 1+math.log(self.tf_entities[ent][doc_id])
-                    else:
-                        self.tf_norm_entities[ent] = {doc_id:1+math.log(self.tf_entities[ent][doc_id])}
-                else:#doc does not contain ent
-                    if ent in self.tf_norm_entities:
-                        self.tf_norm_entities[ent][doc_id] = 0
-                    else:
-                        self.tf_norm_entities[ent] = {doc_id:0}
+            for doc_id in self.tf_entities[ent]:
+                if ent in self.tf_norm_entities:
+                    self.tf_norm_entities[ent][doc_id] = 1+math.log(self.tf_entities[ent][doc_id])
+                else:
+                    self.tf_norm_entities[ent] = {doc_id:1+math.log(self.tf_entities[ent][doc_id])}
         
         #construct dictionary of idf
         for token in self.tf_tokens:
@@ -152,14 +146,14 @@ class InvertedIndex:
             token_score = 0
             entities_score = 0
             for tk in query["tokens"]:
-                #token not in the doc
-                if tk not in self.tf_norm_tokens:
+                #token not in the any doc
+                if tk not in self.tf_norm_tokens or doc_id not in self.tf_norm_tokens[tk]:
                     token_score += 0
                 else:
                     token_score += self.tf_norm_tokens[tk][doc_id] * self.idf_tokens[tk]
             if len(query["entities"]) > 0:
                 for et in query["entities"]:
-                    if et not in self.tf_norm_entities:
+                    if et not in self.tf_norm_entities or doc_id not in self.tf_norm_entities[et]:
                         entities_score += 0
                     else:
                         entities_score += self.tf_norm_entities[et][doc_id]*self.idf_entities[et]
@@ -168,26 +162,3 @@ class InvertedIndex:
                 max_score = combined_score
                 res = (combined_score,query)
         return res
-
-
-
-documents = {1: 'According to Times of India, President Donald Trump was on his way to New York City after his address at UNGA.',
-             2: 'The New York Times mentioned an interesting story about Trump.',
-             3: 'I think it would be great if I can travel to New York this summer to see Trump.'}
-
-index = InvertedIndex()
-index.index_documents(documents)
-
-Q = 'The New New York City Times of India'
-DoE = {'Times of India':0, 'The New York Times':1,'New York City':2}
-
-# DoE={'A B C':0,'B C':1}   
-# Q='A B C C B'
-
-query_splits = index.split_query(Q, DoE)
-# for x in query_splits:
-#     print("final: ",x)
-
-result = index.max_score_query(query_splits, 1)
-print(result)
-
